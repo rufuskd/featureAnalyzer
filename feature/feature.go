@@ -34,7 +34,7 @@ type featureTree struct
 }
 
 func Coldiff(x, y uint32) int {
-  diff := int(x) - int(y)
+  diff := int(x>>8) - int(y>>8)
   if diff < 0{
     return diff*(-1)
   } else{
