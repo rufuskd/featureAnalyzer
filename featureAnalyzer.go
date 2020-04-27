@@ -1,28 +1,22 @@
 package main
 
 import (
+  "container/list"
   "math/rand"
 	"fmt"
 	"image"
 	"log"
   "time"
   "os"
-	_ "image/png"
+	"image/jpeg"
+  "image/color"
   "github.com/rufuskd/featureAnalyzer/feature"
 )
 
 
-
-type point struct{
-  x,y int
-}
-
-
 func main() {
-  var fuck feature.Feature
-  fmt.Println("I'm losing my mind",fuck)
   rand.Seed(time.Now().UnixNano())
-  reader, err := os.Open("/home/rufus/featureAnalyzer/0ltqoml2xrt41.png")
+  reader, err := os.Open("/home/rufus/pokemons/dataset/Abra/a442a2482d4e4555b6d802c961c2fdb0.jpg")
   if err != nil {
     log.Fatal(err)
   }
@@ -46,7 +40,7 @@ func main() {
         for i2 := -1; i2 <= 1; i2++ {
           if x+i2 >= bounds.Min.X && x+i2 < bounds.Max.X && y+i1 >= bounds.Min.Y && y+i1 < bounds.Max.Y{
             tr, tg, tb, _ = m.At(x+i2, y+i1).RGBA()
-            diffSum += coldiff(r,tr) + coldiff(g,tg) + coldiff(b,tb)
+            diffSum += feature.Coldiff(r,tr) + feature.Coldiff(g,tg) + feature.Coldiff(b,tb)
             denom++
           }
         }
@@ -63,7 +57,7 @@ func main() {
   fmt.Println("Time: ",t.Sub(start))
 
   startingSpotCount := 0
-  noStarts := make(map[point]int)
+  noStarts := make(map[feature.Point]int)
   for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, _ = m.At(x, y).RGBA()
@@ -73,7 +67,7 @@ func main() {
         for i2 := -1; i2 <= 1; i2++ {
           if x+i2 >= bounds.Min.X && x+i2 < bounds.Max.X && y+i1 >= bounds.Min.Y && y+i1 < bounds.Max.Y{
             tr, tg, tb, _ = m.At(x+i2, y+i1).RGBA()
-            diffSum += coldiff(r,tr) + coldiff(g,tg) + coldiff(b,tb)
+            diffSum += feature.Coldiff(r,tr) + feature.Coldiff(g,tg) + feature.Coldiff(b,tb)
             denom++
           }
         }
@@ -81,24 +75,63 @@ func main() {
       if diffSum < avDiff{
         startingSpotCount++
       } else {
-        noStarts[point{x,y}] = 1
+        noStarts[feature.Point{x,y}] = 1
       }
 		}
 	}
   fmt.Println("There are:",startingSpotCount," possible starting pixels")
   rx := rand.Int()%bounds.Max.X
   ry := rand.Int()%bounds.Max.Y
-  fmt.Println("Can I start at:",rx,ry," ",noStarts[point{rx,ry}]==0)
+  fmt.Println("Can I start at:",rx,ry," ",noStarts[feature.Point{rx,ry}]==0)
 
   //Now that we have established the average pixel difference and mapped out
   //the no start zones, we iterate pixel by pixel, bloom, add newly incorporated
   //pixels to the no start zones and let the features rip
+  visited := make(map[feature.Point]int)
+  featList := list.New()
+  featureCount := 0
   for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-      if noStarts[point{x,y}] == 0{
+      if noStarts[feature.Point{x,y}] == 0 && visited[feature.Point{x,y}] == 0{
         //Begin a feature bloom here
-
+        newFeature := &(feature.Feature{nil,nil})
+        fmt.Println("Gonna try ",x,",",y)
+        newFeature.BloomFeatureDiffStrat(x,y,avDiff,m,&visited)
+        featList.PushBack(newFeature)
+        fmt.Println("Yanked a feature")
+        newFeature.PrintBox()
+        featureCount++
       }
     }
   }
+
+  resultImage := image.NewRGBA(bounds)
+
+  for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+    for x := bounds.Min.X; x < bounds.Max.X; x++ {
+      r,g,b,_ := m.At(x,y).RGBA()
+      resultImage.SetRGBA(x,y,color.RGBA{uint8(r>>8),uint8(g>>8),uint8(b>>8),255})
+    }
+  }
+
+  for item := featList.Front(); item != nil; item = item.Next(){
+    f := item.Value.(*feature.Feature)
+    //Draw the feature box on the image!
+    for bx := f.M.X1; bx <= f.M.X2; bx++{
+      resultImage.Set(bx,f.M.Y1,color.RGBA{255,255,255,255})
+      resultImage.Set(bx,f.M.Y2,color.RGBA{255,255,255,255})
+    }
+    for by := f.M.Y1; by <= f.M.Y2; by++{
+      resultImage.Set(f.M.X1,by,color.RGBA{255,255,255,255})
+      resultImage.Set(f.M.X2,by,color.RGBA{255,255,255,255})
+    }
+  }
+  output, err := os.Create("Output.jpg")
+  if err != nil{
+    panic(err)
+  }
+  defer output.Close()
+  jpeg.Encode(output,resultImage,nil)
+
+  fmt.Println("Pulled: ",featureCount," features")
 }
