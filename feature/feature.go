@@ -1,7 +1,6 @@
 package feature
 
 import (
-	"fmt"
 	"image"
 	_ "image/jpeg"
 )
@@ -12,10 +11,6 @@ const right = 2
 const down = 3
 const und = -1
 
-type Point struct{
-  X,Y int
-}
-
 type Feature struct
 {
 	T *featureTree
@@ -24,13 +19,17 @@ type Feature struct
 
 type featureMeta struct
 {
-	size, avDiff, X1, Y1, X2, Y2 int
+	Size, avDiff, X1, Y1, X2, Y2 int
 }
 
 type featureTree struct
 {
 	signpost,parent,x,y int
 	children *[4]*featureTree
+}
+
+type Point struct{
+  X,Y int
 }
 
 func Coldiff(x, y uint32) int {
@@ -42,14 +41,111 @@ func Coldiff(x, y uint32) int {
   }
 }
 
-func (feat *Feature) PrintBox(){
-	fmt.Println("Size:",feat.M.size,"\nCoords:",feat.M.X1,",",feat.M.Y1,"-",feat.M.X2,",",feat.M.Y2)
+func AvDiff(m image.Image) int {
+	pixelCount := 0
+	avDiff := 0
+	diffSum := 0
+	denom := 0
+	bounds := m.Bounds()
+	var r,g,b,tr,tg,tb uint32
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ = m.At(x, y).RGBA()
+			diffSum = 0
+			denom = 0
+			for i1 := -1; i1 <= 1; i1++ {
+				for i2 := -1; i2 <= 1; i2++ {
+					if x+i2 >= bounds.Min.X && x+i2 < bounds.Max.X && y+i1 >= bounds.Min.Y && y+i1 < bounds.Max.Y{
+						tr, tg, tb, _ = m.At(x+i2, y+i1).RGBA()
+						diffSum += Coldiff(r,tr) + Coldiff(g,tg) + Coldiff(b,tb)
+						denom++
+					}
+				}
+			}
+			avDiff += diffSum/denom
+			pixelCount++
+		}
+	}
+	avDiff = avDiff/pixelCount
+
+	return avDiff
 }
+
+func AvTransitionDiff(m image.Image) int {
+	pixelCount := 0
+	avDiff := 0
+	diffSum := 0
+	curDiff := 0
+	denom := 0
+	bounds := m.Bounds()
+	var r,g,b,tr,tg,tb uint32
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ = m.At(x, y).RGBA()
+			diffSum = 0
+			denom = 0
+			for i1 := -1; i1 <= 1; i1++ {
+				for i2 := -1; i2 <= 1; i2++ {
+					if x+i2 >= bounds.Min.X && x+i2 < bounds.Max.X && y+i1 >= bounds.Min.Y && y+i1 < bounds.Max.Y{
+						tr, tg, tb, _ = m.At(x+i2, y+i1).RGBA()
+						curDiff = Coldiff(r,tr) + Coldiff(g,tg) + Coldiff(b,tb)
+						if curDiff > 0 {
+							diffSum += curDiff
+							denom++
+						}
+					}
+				}
+			}
+			if denom > 0 {
+				avDiff += diffSum/denom
+			}
+			pixelCount++
+		}
+	}
+	avDiff = avDiff/pixelCount
+
+	return avDiff
+}
+
+func AvMinDiff(m image.Image) int {
+	pixelCount := 0
+	avMinDiff := 0
+	bounds := m.Bounds()
+	var minDiff,curDiff int
+	var r,g,b,tr,tg,tb uint32
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ = m.At(x, y).RGBA()
+			curDiff = -1
+			minDiff = -1
+			for i1 := -1; i1 <= 1; i1++ {
+				for i2 := -1; i2 <= 1; i2++ {
+					if x+i2 >= bounds.Min.X && x+i2 < bounds.Max.X && y+i1 >= bounds.Min.Y && y+i1 < bounds.Max.Y{
+						tr, tg, tb, _ = m.At(x+i2, y+i1).RGBA()
+						curDiff = Coldiff(r,tr) + Coldiff(g,tg) + Coldiff(b,tb)
+						if minDiff == -1 || curDiff < minDiff{
+							minDiff = curDiff
+						}
+					}
+				}
+			}
+			avMinDiff += minDiff
+			pixelCount++
+		}
+	}
+	avMinDiff = avMinDiff/pixelCount
+
+	return avMinDiff
+}
+
 
 func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, visited *map[Point]int) {
 	//Initialize a feature tree
 	feat.M = &featureMeta{
-		size: 1,
+		Size: 1,
 		avDiff: 0,
 		X1: x,
 		Y1: y,
@@ -105,7 +201,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 				trav.signpost++
 				trav.children[left].children[right] = trav
 				trav = trav.children[left]
-				feat.M.size++
+				feat.M.Size++
 			} else {
 				trav.signpost++
 			}
@@ -127,7 +223,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 				trav.signpost++
 				trav.children[up].children[down] = trav
 				trav = trav.children[up]
-				feat.M.size++
+				feat.M.Size++
 			} else {
 				trav.signpost++
 			}
@@ -137,6 +233,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 			r,g,b,_ = m.At(trav.x, trav.y).RGBA()
 			r1,g1,b1,_ = m.At(trav.x+1,trav.y).RGBA()
 			curdiff = Coldiff(r,r1) + Coldiff(g,g1) + Coldiff(b,b1)
+
 
 			if curdiff < threshold{
 				(*visited)[Point{trav.x+1,trav.y}] = 1
@@ -149,7 +246,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 				trav.signpost++
 				trav.children[right].children[left] = trav
 				trav = trav.children[right]
-				feat.M.size++
+				feat.M.Size++
 			} else {
 				trav.signpost++
 			}
@@ -159,6 +256,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 			r,g,b,_ = m.At(trav.x, trav.y).RGBA()
 			r1,g1,b1,_ = m.At(trav.x,trav.y+1).RGBA()
 			curdiff = Coldiff(r,r1) + Coldiff(g,g1) + Coldiff(b,b1)
+
 
 			if curdiff < threshold{
 				(*visited)[Point{trav.x,trav.y+1}] = 1
@@ -171,7 +269,7 @@ func (feat *Feature) BloomFeatureDiffStrat(x, y, threshold int, m image.Image, v
 				trav.signpost++
 				trav.children[down].children[up] = trav
 				trav = trav.children[down]
-				feat.M.size++
+				feat.M.Size++
 			} else {
 				trav.signpost++
 			}
